@@ -1,0 +1,48 @@
+{
+  "name": "latex-render",
+  "version": "0.1.0",
+  "description": "Renders LaTeX math in Claude's replies: display math as crisp images (kitty graphics protocol), inline math as Unicode",
+  "author": {
+    "name": "arthgirard",
+    "url": "https://github.com/arthgirard"
+  },
+  "repository": "https://github.com/arthgirard/claude-latex-render",
+  "license": "MIT",
+  "userConfig": {
+    "images": {
+      "type": "string",
+      "title": "Display math as images",
+      "description": "auto: on in kitty, Ghostty and WezTerm outside tmux; on: always; off: Unicode text only",
+      "options": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "default": "auto"
+    },
+    "color": {
+      "type": "string",
+      "title": "Formula color",
+      "description": "Hex color such as #e6e6e6, or auto to follow the light or dark theme",
+      "default": "auto"
+    },
+    "scale": {
+      "type": "number",
+      "title": "Formula scale",
+      "description": "Terminal rows taken by one line of LaTeX text (1.25 is a little larger than the text around it)",
+      "default": 1.25
+    },
+    "cellAspect": {
+      "type": "number",
+      "title": "Cell aspect ratio",
+      "description": "Height of a terminal cell divided by its width; raise it if formulas look squashed, lower it if they look stretched",
+      "default": 2.1
+    },
+    "preamble": {
+      "type": "string",
+      "title": "Extra LaTeX preamble",
+      "description": "Added after amsmath, amssymb, mathtools and bm, e.g. \\usepackage{physics}",
+      "default": ""
+    }
+  }
+}

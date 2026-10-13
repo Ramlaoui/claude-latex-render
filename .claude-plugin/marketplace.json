@@ -1,0 +1,14 @@
+{
+  "name": "claude-latex-render",
+  "description": "LaTeX math rendering for Claude Code replies",
+  "owner": {
+    "name": "arthgirard"
+  },
+  "plugins": [
+    {
+      "name": "latex-render",
+      "source": "./",
+      "description": "Renders LaTeX math in Claude's replies: display math as crisp images (kitty graphics protocol), inline math as Unicode"
+    }
+  ]
+}

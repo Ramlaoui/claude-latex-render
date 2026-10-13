@@ -1,0 +1,559 @@
+// Pure LaTeX helpers: finding math in markdown, Unicode conversion, the
+// document a display formula is typeset in. No `$` here, so tests reach it all.
+
+export type Segment =
+  | { kind: 'markdown'; text: string }
+  | { kind: 'display'; tex: string; env?: string }
+
+const DISPLAY_ENVS = 'equation|align|gather|multline|eqnarray|flalign|alignat'
+
+const DISPLAY = new RegExp(
+  String.raw`\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\begin\{(${DISPLAY_ENVS})(\*?)\}([\s\S]*?)\\end\{\3\4\}`,
+  'g',
+)
+
+const INLINE = /\\\((.+?)\\\)|(?<![\\$\w])\$(?![\s$])([^$\n]+?)(?<![\s\\])\$(?![$\w])/g
+
+const FENCE = /^ {0,3}(`{3,}|~{3,})/
+
+// Private-use characters stand in for inline code spans while math is found.
+const HOLE = ''
+
+export function hasMath(text: string): boolean {
+  return text.includes('$') || text.includes('\\(') || text.includes('\\[') || text.includes('\\begin{')
+}
+
+/**
+ * Splits markdown into text and display-math segments, leaving fenced code
+ * and inline code spans alone. Inline math stays in the text segments.
+ */
+export function splitMath(text: string): Segment[] {
+  const out: Segment[] = []
+  const pushText = (chunk: string) => {
+    if (chunk === '') return
+    const last = out[out.length - 1]
+    if (last?.kind === 'markdown') last.text += chunk
+    else out.push({ kind: 'markdown', text: chunk })
+  }
+
+  for (const block of splitFences(text)) {
+    if (block.isCode) {
+      pushText(block.text)
+      continue
+    }
+    const { masked, spans } = maskCodeSpans(block.text)
+    let at = 0
+    for (const m of masked.matchAll(DISPLAY)) {
+      const start = m.index ?? 0
+      pushText(unmask(masked.slice(at, start), spans))
+      const env = m[3]
+      const tex = unmask(m[1] ?? m[2] ?? m[5] ?? '', spans).trim()
+      if (tex === '') pushText(unmask(m[0], spans))
+      else out.push(env ? { kind: 'display', tex, env: env + (m[4] ?? '') } : { kind: 'display', tex })
+      at = start + m[0].length
+    }
+    pushText(unmask(masked.slice(at), spans))
+  }
+
+  return out
+}
+
+/** Replaces inline math in markdown with Unicode, escaped for markdown. */
+export function inlineToUnicode(markdown: string): string {
+  return splitFences(markdown)
+    .map(block => {
+      if (block.isCode) return block.text
+      const { masked, spans } = maskCodeSpans(block.text)
+      const replaced = masked.replace(INLINE, (whole, paren?: string, dollar?: string) => {
+        const tex = paren ?? dollar ?? ''
+        if (dollar !== undefined && /^[\d.,\s]+$/.test(dollar)) return whole
+        return escapeMarkdown(texToUnicode(tex))
+      })
+      return unmask(replaced, spans)
+    })
+    .join('')
+}
+
+/** The whole reply as markdown with every formula in Unicode. */
+export function segmentsToUnicode(segments: Segment[]): string {
+  return segments
+    .map(s => (s.kind === 'markdown' ? inlineToUnicode(s.text) : displayToUnicode(s.tex)))
+    .join('')
+}
+
+/** A display formula as indented Unicode lines, one per `\\` row. */
+export function displayToUnicode(tex: string): string {
+  const body = tex.replace(/\\(?:begin|end)\{(?:aligned|gathered|split|align\*?|gather\*?)\}/g, '')
+  const lines = body
+    .split(/\\\\(?:\[[^\]]*\])?/)
+    .map(line => texToUnicode(line).trim())
+    .filter(line => line !== '')
+  return '\n\n' + lines.map(line => '    ' + escapeMarkdown(line)).join('  \n') + '\n\n'
+}
+
+function splitFences(text: string): { text: string; isCode: boolean }[] {
+  const blocks: { text: string; isCode: boolean }[] = []
+  let current = ''
+  let fence: string | undefined
+  for (const line of text.split(/(?<=\n)/)) {
+    const marks = FENCE.exec(line)?.[1]
+    if (fence === undefined && marks) {
+      if (current) blocks.push({ text: current, isCode: false })
+      current = line
+      fence = marks
+    } else if (fence !== undefined && marks && marks[0] === fence[0] && marks.length >= fence.length && line.trim() === marks) {
+      blocks.push({ text: current + line, isCode: true })
+      current = ''
+      fence = undefined
+    } else {
+      current += line
+    }
+  }
+  if (current) blocks.push({ text: current, isCode: fence !== undefined })
+  return blocks
+}
+
+function maskCodeSpans(text: string): { masked: string; spans: string[] } {
+  const spans: string[] = []
+  const masked = text.replace(/(`+)[\s\S]*?\1/g, span => {
+    spans.push(span)
+    return HOLE + (spans.length - 1) + HOLE
+  })
+  return { masked, spans }
+}
+
+function unmask(text: string, spans: string[]): string {
+  return text.replace(/(\d+)/g, (_, i: string) => spans[Number(i)] ?? '')
+}
+
+export function escapeMarkdown(text: string): string {
+  return text.replace(/[\\`*_[\]<>|~]/g, c => '\\' + c)
+}
+
+// ---------------------------------------------------------------------------
+// LaTeX to Unicode
+
+const SYMBOLS: Record<string, string> = {
+  alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ϵ', varepsilon: 'ε', zeta: 'ζ', eta: 'η',
+  theta: 'θ', vartheta: 'ϑ', iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π',
+  varpi: 'ϖ', rho: 'ρ', varrho: 'ϱ', sigma: 'σ', varsigma: 'ς', tau: 'τ', upsilon: 'υ', phi: 'ϕ',
+  varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω',
+  Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ', Pi: 'Π', Sigma: 'Σ', Upsilon: 'Υ',
+  Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+  cdot: '·', cdots: '⋯', ldots: '…', dots: '…', vdots: '⋮', ddots: '⋱', times: '×', div: '÷',
+  pm: '±', mp: '∓', ast: '∗', star: '⋆', circ: '∘', bullet: '•', oplus: '⊕', otimes: '⊗',
+  leq: '≤', le: '≤', geq: '≥', ge: '≥', neq: '≠', ne: '≠', approx: '≈', equiv: '≡', sim: '∼',
+  simeq: '≃', cong: '≅', propto: '∝', ll: '≪', gg: '≫', prec: '≺', succ: '≻', perp: '⊥',
+  parallel: '∥', mid: '∣', nmid: '∤', vert: '|', Vert: '‖', lvert: '|', rvert: '|', lVert: '‖',
+  rVert: '‖', langle: '⟨', rangle: '⟩', lfloor: '⌊', rfloor: '⌋', lceil: '⌈', rceil: '⌉',
+  lbrace: '{', rbrace: '}', '{': '{', '}': '}', '|': '‖', '%': '%', '$': '$', '&': '&', '#': '#', _: '_',
+  in: '∈', notin: '∉', ni: '∋', subset: '⊂', supset: '⊃', subseteq: '⊆', supseteq: '⊇',
+  subsetneq: '⊊', cup: '∪', cap: '∩', bigcup: '⋃', bigcap: '⋂', setminus: '∖', emptyset: '∅',
+  varnothing: '∅', forall: '∀', exists: '∃', nexists: '∄', neg: '¬', lnot: '¬', land: '∧',
+  wedge: '∧', lor: '∨', vee: '∨', top: '⊤', bot: '⊥', vdash: '⊢', models: '⊨',
+  to: '→', rightarrow: '→', leftarrow: '←', gets: '←', leftrightarrow: '↔', Rightarrow: '⇒',
+  Leftarrow: '⇐', Leftrightarrow: '⇔', implies: '⟹', impliedby: '⟸', iff: '⟺', mapsto: '↦',
+  longrightarrow: '⟶', longleftarrow: '⟵', longmapsto: '⟼', uparrow: '↑', downarrow: '↓',
+  hookrightarrow: '↪', rightharpoonup: '⇀', nearrow: '↗', searrow: '↘',
+  infty: '∞', partial: '∂', nabla: '∇', sum: '∑', prod: '∏', coprod: '∐', int: '∫', iint: '∬',
+  iiint: '∭', oint: '∮', angle: '∠', triangle: '△', square: '□', Box: '□',
+  ell: 'ℓ', hbar: 'ℏ', Re: 'ℜ', Im: 'ℑ', aleph: 'ℵ', wp: '℘', prime: '′', degree: '°',
+  qed: '∎', blacksquare: '■', checkmark: '✓', dagger: '†', ddagger: '‡',
+  colon: ':', ',': ' ', ';': ' ', ':': ' ', '!': '', ' ': ' ', quad: '  ', qquad: '    ',
+  enspace: ' ', thinspace: ' ', medspace: ' ', thickspace: ' ', cr: '; ', newline: '; ',
+}
+
+const FUNCTIONS = new Set([
+  'sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh',
+  'coth', 'log', 'ln', 'lg', 'exp', 'lim', 'liminf', 'limsup', 'max', 'min', 'sup', 'inf', 'det',
+  'dim', 'ker', 'deg', 'gcd', 'lcm', 'arg', 'Pr', 'hom', 'mod', 'bmod', 'tr', 'rank', 'span',
+])
+
+const IGNORED = new Set([
+  'left', 'right', 'big', 'Big', 'bigg', 'Bigg', 'bigl', 'bigr', 'Bigl', 'Bigr', 'biggl', 'biggr',
+  'Biggl', 'Biggr', 'middle', 'displaystyle', 'textstyle', 'scriptstyle', 'limits', 'nolimits',
+  'label', 'nonumber', 'notag', 'tag', 'mathstrut', 'strut', 'phantom', 'hphantom', 'vphantom',
+])
+
+const TEXT_COMMANDS = new Set([
+  'text', 'textrm', 'textit', 'textbf', 'textsf', 'texttt', 'mathrm', 'mathit', 'mathbf', 'mathsf',
+  'mathtt', 'boldsymbol', 'bm', 'mbox', 'hbox', 'emph', 'pmb', 'mathnormal',
+])
+
+const ACCENTS: Record<string, string> = {
+  hat: '̂', widehat: '̂', bar: '̅', overline: '̅', tilde: '̃',
+  widetilde: '̃', dot: '̇', ddot: '̈', vec: '⃗', overrightarrow: '⃗',
+  check: '̌', acute: '́', grave: '̀', breve: '̆', underline: '̲',
+}
+
+const DOUBLE_STRUCK: Record<string, string> = {
+  C: 'ℂ', H: 'ℍ', N: 'ℕ', P: 'ℙ', Q: 'ℚ', R: 'ℝ', Z: 'ℤ', '1': '𝟙',
+}
+
+const SCRIPT: Record<string, string> = {
+  B: 'ℬ', E: 'ℰ', F: 'ℱ', H: 'ℋ', I: 'ℐ', L: 'ℒ', M: 'ℳ', R: 'ℛ', e: 'ℯ', g: 'ℊ', o: 'ℴ',
+}
+
+const SUPERSCRIPT: Record<string, string> = {
+  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+  '+': '⁺', '-': '⁻', '−': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', a: 'ᵃ', b: 'ᵇ', c: 'ᶜ', d: 'ᵈ',
+  e: 'ᵉ', f: 'ᶠ', g: 'ᵍ', h: 'ʰ', i: 'ⁱ', j: 'ʲ', k: 'ᵏ', l: 'ˡ', m: 'ᵐ', n: 'ⁿ', o: 'ᵒ', p: 'ᵖ',
+  r: 'ʳ', s: 'ˢ', t: 'ᵗ', u: 'ᵘ', v: 'ᵛ', w: 'ʷ', x: 'ˣ', y: 'ʸ', z: 'ᶻ', A: 'ᴬ', B: 'ᴮ', D: 'ᴰ',
+  E: 'ᴱ', G: 'ᴳ', H: 'ᴴ', I: 'ᴵ', J: 'ᴶ', K: 'ᴷ', L: 'ᴸ', M: 'ᴹ', N: 'ᴺ', O: 'ᴼ', P: 'ᴾ', R: 'ᴿ',
+  T: 'ᵀ', U: 'ᵁ', V: 'ⱽ', W: 'ᵂ', 'β': 'ᵝ', 'γ': 'ᵞ', 'δ': 'ᵟ', 'θ': 'ᶿ', 'ϕ': 'ᵠ', 'φ': 'ᵠ',
+  'χ': 'ᵡ', '∗': '*', '*': '*', '′': '′', ',': '˒', ' ': '',
+}
+
+const SUBSCRIPT: Record<string, string> = {
+  '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+  '+': '₊', '-': '₋', '−': '₋', '=': '₌', '(': '₍', ')': '₎', a: 'ₐ', e: 'ₑ', h: 'ₕ', i: 'ᵢ', j: 'ⱼ',
+  k: 'ₖ', l: 'ₗ', m: 'ₘ', n: 'ₙ', o: 'ₒ', p: 'ₚ', r: 'ᵣ', s: 'ₛ', t: 'ₜ', u: 'ᵤ', v: 'ᵥ', x: 'ₓ',
+  'β': 'ᵦ', 'γ': 'ᵧ', 'ρ': 'ᵨ', 'ϕ': 'ᵩ', 'φ': 'ᵩ', 'χ': 'ᵪ', ',': ',', ' ': '',
+}
+
+const MATRIX_ENVS: Record<string, [string, string]> = {
+  matrix: ['', ''], pmatrix: ['(', ')'], bmatrix: ['[', ']'], Bmatrix: ['{', '}'],
+  vmatrix: ['|', '|'], Vmatrix: ['‖', '‖'], smallmatrix: ['', ''], cases: ['{ ', ''],
+  array: ['', ''],
+}
+
+// Mark a function name's ends: a space where a letter or digit touches it.
+const FUNCTION_START = '\uE002'
+const FUNCTION_END = '\uE001'
+
+// Relations and binary operators drawn with a space either side.
+const SPACED = /[+=<>≤≥≠≈≡∼≃≅∝∈∉∋⊂⊃⊆⊇⊊→←↔⇒⇐⇔⟹⟸⟺↦⟶⊢⊨≪≫·×±∓÷]/g
+
+type Token = { type: 'command'; name: string } | { type: 'char'; value: string }
+
+const isChar = (t: Token | undefined, value: string) => t?.type === 'char' && t.value === value
+
+function tokenize(tex: string): Token[] {
+  const tokens: Token[] = []
+  for (let i = 0; i < tex.length; ) {
+    const c = tex[i]
+    if (c === '\\') {
+      const m = /^[a-zA-Z]+/.exec(tex.slice(i + 1))
+      if (m) {
+        tokens.push({ type: 'command', name: m[0] })
+        i += 1 + m[0].length
+        // TeX drops the spaces after a control word.
+        while (/[ \t\n]/.test(tex[i] ?? '')) i++
+      } else {
+        tokens.push({ type: 'command', name: tex[i + 1] ?? '' })
+        i += 2
+      }
+    } else if (c === '%') {
+      const end = tex.indexOf('\n', i)
+      i = end === -1 ? tex.length : end + 1
+    } else {
+      const ch = String.fromCodePoint(tex.codePointAt(i) ?? 0)
+      tokens.push({ type: 'char', value: ch })
+      i += ch.length
+    }
+  }
+  return tokens
+}
+
+/** Converts a LaTeX math expression to readable Unicode text. */
+export function texToUnicode(tex: string): string {
+  const tokens = tokenize(tex)
+  let i = 0
+
+  const skipSpace = () => {
+    for (let t = tokens[i]; t?.type === 'char' && /\s/.test(t.value); t = tokens[i]) i++
+  }
+
+  // One argument: a braced group or a single token.
+  const arg = (): string => {
+    skipSpace()
+    const t = tokens[i]
+    if (t === undefined) return ''
+    if (t.type === 'char' && t.value === '{') {
+      i++
+      return expr('}')
+    }
+    i++
+    return atom(t)
+  }
+
+  const optionalArg = (): string | undefined => {
+    skipSpace()
+    const t = tokens[i]
+    if (t?.type !== 'char' || t.value !== '[') return undefined
+    i++
+    return expr(']')
+  }
+
+  const rawGroup = (): string => {
+    skipSpace()
+    if (!isChar(tokens[i], '{')) return ''
+    i++
+    let depth = 1
+    let s = ''
+    for (let t = tokens[i]; t !== undefined; t = tokens[i]) {
+      i++
+      if (t.type === 'char' && t.value === '{') depth++
+      if (t.type === 'char' && t.value === '}' && --depth === 0) break
+      s += t.type === 'char' ? t.value : '\\' + t.name
+    }
+    return s
+  }
+
+  const environment = (name: string): string => {
+    if (name === 'array') rawGroup()
+    let row: string[] = []
+    const rows: string[][] = [row]
+    let cell = ''
+    for (let t = tokens[i]; t !== undefined; t = tokens[i]) {
+      if (t.type === 'command' && t.name === 'end') {
+        i++
+        rawGroup()
+        break
+      }
+      if (t.type === 'char' && t.value === '&') {
+        i++
+        row.push(cell.trim())
+        cell = ''
+      } else if (t.type === 'command' && t.name === '\\') {
+        i++
+        optionalArg()
+        row.push(cell.trim())
+        row = []
+        rows.push(row)
+        cell = ''
+      } else {
+        i++
+        cell += atom(t)
+      }
+    }
+    row.push(cell.trim())
+    const kept = rows.filter(r => r.some(c => c !== ''))
+    const [open, close] = (Object.hasOwn(MATRIX_ENVS, name) ? MATRIX_ENVS[name] : undefined) ?? ['', '']
+    if (name === 'cases') return open + kept.map(r => r.filter(c => c !== '').join(', ')).join('; ')
+    const sep = /matrix|array/.test(name) ? ' ' : ''
+    return open + kept.map(r => r.join(sep)).join('; ') + close
+  }
+
+  const command = (name: string): string => {
+    const symbol = Object.hasOwn(SYMBOLS, name) ? SYMBOLS[name] : undefined
+    if (symbol !== undefined && !IGNORED.has(name)) return symbol
+    if (FUNCTIONS.has(name)) return FUNCTION_START + name + FUNCTION_END
+    if (name === 'operatorname') return FUNCTION_START + arg() + FUNCTION_END
+    if (IGNORED.has(name)) {
+      if (['label', 'tag', 'phantom', 'hphantom', 'vphantom'].includes(name)) rawGroup()
+      if (name === 'left' || name === 'right') {
+        skipSpace()
+        const t = tokens[i]
+        if (t?.type === 'char' && t.value === '.') i++
+      }
+      return ''
+    }
+    const mark = Object.hasOwn(ACCENTS, name) ? ACCENTS[name] : undefined
+    if (mark !== undefined) {
+      const body = arg()
+      if (name === 'vec' || name === 'overrightarrow' || name.startsWith('wide')) return body + mark
+      return [...body].map(ch => ch + mark).join('')
+    }
+    if (TEXT_COMMANDS.has(name)) return arg()
+    switch (name) {
+      case 'frac':
+      case 'dfrac':
+      case 'tfrac':
+      case 'cfrac': {
+        const a = arg()
+        const b = arg()
+        return wrap(a) + '/' + wrap(b)
+      }
+      case 'binom':
+      case 'dbinom':
+      case 'tbinom':
+        return 'C(' + arg() + ', ' + arg() + ')'
+      case 'sqrt': {
+        const n = optionalArg()
+        const body = arg()
+        const root = n === '3' ? '∛' : n === '4' ? '∜' : n ? superscript(n) + '√' : '√'
+        return root + wrap(body)
+      }
+      case 'mathbb':
+        return [...arg()].map(ch => DOUBLE_STRUCK[ch] ?? ch).join('')
+      case 'mathcal':
+      case 'mathscr':
+        return [...arg()].map(ch => SCRIPT[ch] ?? ch).join('')
+      case 'mathfrak':
+        return arg()
+      case 'not': {
+        const next = arg()
+        return next === '=' ? '≠' : next === '∈' ? '∉' : next + '̸'
+      }
+      case 'begin': {
+        const env = rawGroup().replace(/\*$/, '')
+        return environment(env)
+      }
+      case 'end':
+        rawGroup()
+        return ''
+      case 'overset':
+      case 'stackrel': {
+        arg()
+        return arg()
+      }
+      case 'underbrace':
+      case 'overbrace':
+        return arg()
+      case 'pmod':
+        return ' (mod ' + arg() + ')'
+      case '\\':
+        return '; '
+      default:
+        return name
+    }
+  }
+
+  const atom = (t: Token): string => {
+    if (t.type === 'command') return command(t.name)
+    switch (t.value) {
+      case '^':
+        return script(arg(), superscript, '^')
+      case '_':
+        return script(arg(), subscript, '_')
+      case "'":
+        return '′'
+      case '~':
+        return ' '
+      case '&':
+        return ' '
+      case '{':
+        return expr('}')
+      default:
+        return /\s/.test(t.value) ? ' ' : t.value
+    }
+  }
+
+  const expr = (until?: string): string => {
+    let s = ''
+    for (let t = tokens[i]; t !== undefined; t = tokens[i]) {
+      if (until && isChar(t, until)) {
+        i++
+        break
+      }
+      i++
+      s += atom(t)
+    }
+    return s
+  }
+
+  return expr()
+    .replace(new RegExp(FUNCTION_END + '(?=[A-Za-z0-9\u0370-\u03ff])', 'g'), ' ')
+    .replaceAll(FUNCTION_END, '')
+    .replace(new RegExp('(?<=[A-Za-z0-9)\u0370-\u03ff′])' + FUNCTION_START, 'g'), ' ')
+    .replaceAll(FUNCTION_START, '')
+    .replace(SPACED, ' $& ')
+    .replace(/[ \t\n]+/g, ' ')
+    .replace(/ ([,;.)\]])/g, '$1')
+    .replace(/([([]) /g, '$1')
+    .trim()
+}
+
+function script(body: string, convert: (s: string) => string | undefined, mark: string): string {
+  const trimmed = body.trim()
+  if (/^′+$/.test(trimmed)) return trimmed
+  if (trimmed === '') return ''
+  const plain = [...trimmed].length === 1 || /^\(.*\)$/.test(trimmed) ? trimmed : '(' + trimmed + ')'
+  return convert(trimmed) ?? mark + plain
+}
+
+function superscript(s: string): string | undefined {
+  return mapAll(s, SUPERSCRIPT)
+}
+
+function subscript(s: string): string | undefined {
+  return mapAll(s, SUBSCRIPT)
+}
+
+function mapAll(s: string, table: Record<string, string>): string | undefined {
+  let out = ''
+  for (const ch of s) {
+    const mapped = table[ch]
+    if (mapped === undefined) return undefined
+    out += mapped
+  }
+  return out
+}
+
+function wrap(s: string): string {
+  const t = s.trim()
+  if ([...t].length <= 1 || /^[\p{L}\p{N}.′]+$/u.test(t) || /^\(.*\)$/.test(t)) return t
+  return '(' + t + ')'
+}
+
+// ---------------------------------------------------------------------------
+// Typesetting a display formula
+
+const STARRED: Record<string, string> = {
+  equation: 'gather*', 'equation*': 'gather*', multline: 'gather*', 'multline*': 'gather*',
+  flalign: 'align*', 'flalign*': 'align*', align: 'align*', gather: 'gather*', alignat: 'alignat*',
+  eqnarray: 'eqnarray*',
+}
+
+/** The LaTeX document a display formula is typeset alone in. */
+export function texDocument(segment: { tex: string; env?: string }, preamble: string): string {
+  const body = segment.tex.replace(/\\label\{[^}]*\}/g, '')
+  let env = segment.env ? (STARRED[segment.env] ?? segment.env) : undefined
+  if (env === undefined) env = body.includes('&') && !body.includes('\\begin{') ? 'align*' : 'gather*'
+  if (env === 'alignat*' && !body.trimStart().startsWith('{')) env = 'align*'
+  return [
+    '\\documentclass[10pt]{article}',
+    '\\usepackage{amsmath,amssymb,amsfonts,mathtools,bm}',
+    preamble,
+    '\\pagestyle{empty}',
+    '\\setlength{\\textwidth}{60cm}',
+    '\\begin{document}',
+    `\\begin{${env}}`,
+    body,
+    `\\end{${env}}`,
+    '\\end{document}',
+    '',
+  ].join('\n')
+}
+
+/** A short stable hex key for a string (two FNV-1a passes). */
+export function hashKey(s: string): string {
+  let a = 0x811c9dc5
+  let b = 0x01000193
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    a = Math.imul(a ^ c, 0x01000193)
+    b = Math.imul(b ^ c, 0x5bd1e995) ^ (b >>> 13)
+  }
+  return (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0')
+}
+
+/** Width and height of a PNG from the start of its base64. */
+export function pngSize(base64: string): { width: number; height: number } | undefined {
+  const head = atob(base64.slice(0, 32))
+  if (head.length < 24 || head.slice(1, 4) !== 'PNG') return undefined
+  const u32 = (at: number) =>
+    ((head.charCodeAt(at) << 24) | (head.charCodeAt(at + 1) << 16) | (head.charCodeAt(at + 2) << 8) | head.charCodeAt(at + 3)) >>> 0
+  return { width: u32(16), height: u32(20) }
+}
+
+/** `#rrggbb` as dvipng's `rgb r g b`. */
+export function dvipngColor(hex: string): string | undefined {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim())
+  if (!m) return undefined
+  return 'rgb ' + m.slice(1, 4).map(h => (parseInt(h, 16) / 255).toFixed(3)).join(' ')
+}
+
+/** The first error line of a LaTeX log. */
+export function latexError(log: string): string {
+  const line = log.split('\n').find(l => l.startsWith('! '))
+  return line ? line.slice(2).trim() : 'LaTeX failed'
+}
+
+const UNSAFE = /\\(?:input|include|includeonly|InputIfFileExists|openin|openout|closein|closeout|read|readline|write|message|immediate|special|catcode|uccode|lccode|csname|endcsname|string|def|edef|gdef|xdef|let|futurelet|expandafter|noexpand|newcommand|renewcommand|providecommand|DeclareRobustCommand|usepackage|RequirePackage|documentclass|begin\s*\{\s*document|end\s*\{\s*document|directlua|latelua|pdffilesize|filesize|verbatiminput|lstinputlisting|includegraphics|newread|newwrite|jobname|loop|repeat)(?![a-zA-Z])|\^\^/
+
+/** Whether a formula is plain math: no file access, no macro or catcode tricks. */
+export function isSafeTex(tex: string): boolean {
+  return !UNSAFE.test(tex)
+}
