@@ -2,6 +2,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import {
   dvipngColor,
+  figureDocument,
   hashKey,
   hasMath,
   inlineToUnicode,
@@ -21,6 +22,9 @@ const ROW_PX = 40
 const VERSION = 1
 
 type Display = Segment & { kind: 'display' }
+type Figure = Segment & { kind: 'figure' }
+type Drawn = Display | Figure
+type Palette = { ink: string; paper?: string }
 type Typeset = { path: string; width: number; height: number }
 type Picture = { path: string; columns: number; rows: number }
 
@@ -30,14 +34,16 @@ type Settings = {
   scale: number
   cellAspect: number
   preamble: string
+  background: string
 }
 
 // What the module learns once per load: its options, whether pictures can be
-// drawn, the cache folder, the ink color, and every formula typeset so far.
-let settings: Settings = { images: 'auto', color: 'auto', scale: 1.25, cellAspect: 2.1, preamble: '' }
+// drawn, the cache folder, the colors, and every formula and figure typeset so far.
+let settings: Settings = { images: 'auto', color: 'auto', scale: 1.25, cellAspect: 2.1, preamble: '', background: 'auto' }
 let canDraw: Promise<boolean> | undefined
+let canDrawFigures: Promise<boolean> | undefined
 let cacheDir: Promise<string> | undefined
-let ink: Promise<string> | undefined
+let colors: Promise<Palette> | undefined
 const typeset = new Map<string, Promise<Typeset | undefined>>()
 const fitted = new Map<string, Promise<Picture | undefined>>()
 
@@ -48,6 +54,7 @@ export const register: Register = (on, options) => {
     scale: clamp(Number(options.scale) || 1.25, 0.5, 4),
     cellAspect: clamp(Number(options.cellAspect) || 2.1, 1, 4),
     preamble: String(options.preamble ?? ''),
+    background: String(options.background ?? 'auto'),
   }
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
@@ -55,7 +62,7 @@ export const register: Register = (on, options) => {
     if (e.props.isSummary || !hasMath(text)) return next(e)
 
     const segments = splitMath(text)
-    const hasDisplay = segments.some(s => s.kind === 'display')
+    const hasDisplay = segments.some(s => s.kind !== 'markdown')
     const drawsPictures = e.surface === 'terminal' && hasDisplay && (await imagesOn($))
 
     if (!drawsPictures) {
@@ -65,7 +72,7 @@ export const register: Register = (on, options) => {
 
     const room = Math.max(10, (e.viewport?.columns ?? 80) - 4)
     const pictures = await Promise.all(
-      segments.map(s => (s.kind === 'display' ? fit($, s, room) : Promise.resolve(undefined))),
+      segments.map(s => (s.kind === 'markdown' ? Promise.resolve(undefined) : fit($, s, room))),
     )
 
     const { Box, Text, Markdown, Image } = $.ui.resolve(e)
@@ -88,11 +95,11 @@ export const register: Register = (on, options) => {
         children.push(
           <Box marginLeft={2}>
             <Image
-              key={`math-${index}`}
+              key={`${s.kind === 'figure' ? 'figure' : 'math'}-${index}`}
               source={{ file: picture.path, format: 'png' }}
               columns={picture.columns}
               rows={picture.rows}
-              alt={texToUnicode(s.tex) || ' '}
+              alt={s.kind === 'figure' ? 'TikZ figure' : texToUnicode(s.tex) || ' '}
             />
           </Box>,
         )
@@ -141,6 +148,18 @@ async function detectImages($: EngineInterface, option: string): Promise<boolean
   return Boolean(kitty) || /kitty|ghostty|wezterm/.test(name)
 }
 
+// Figures take pdflatex and pdftocairo besides what formulas take.
+function figuresOn($: EngineInterface): Promise<boolean> {
+  canDrawFigures ??= imagesOn($).then(async on => {
+    if (!on) return false
+    const tools = await Promise.all(
+      ['pdflatex', 'pdftocairo'].map(tool => $.process.run([tool, '-v']).then(r => r.exitCode === 0, () => false)),
+    )
+    return tools.every(Boolean)
+  })
+  return canDrawFigures
+}
+
 function cache($: EngineInterface): Promise<string> {
   cacheDir ??= findCacheDir($)
   return cacheDir
@@ -151,25 +170,28 @@ async function findCacheDir($: EngineInterface): Promise<string> {
   return `${xdg || `${home ?? '/tmp'}/.cache`}/claude-latex-render`
 }
 
-function color($: EngineInterface): Promise<string> {
-  ink ??= pickColor($, settings.color)
-  return ink
+function palette($: EngineInterface): Promise<Palette> {
+  colors ??= pickPalette($)
+  return colors
 }
 
-async function pickColor($: EngineInterface, option: string): Promise<string> {
-  const chosen = option !== 'auto' ? dvipngColor(option) : undefined
-  if (chosen) return chosen
+// The ink, and on a dark theme the paper figures' `white` stands for.
+async function pickPalette($: EngineInterface): Promise<Palette> {
   const rows = await $.config.list().catch(() => [])
-  const theme = String(rows.find(row => row.key === 'theme')?.value ?? 'dark')
-  return dvipngColor(theme.includes('light') ? '#1f1f1f' : '#e6e6e6') ?? 'rgb 0.9 0.9 0.9'
+  const light = String(rows.find(row => row.key === 'theme')?.value ?? 'dark').includes('light')
+  const hex = (option: string, fallback: string) => (dvipngColor(option) ? option.replace('#', '') : fallback)
+  return {
+    ink: hex(settings.color, light ? '1f1f1f' : 'e6e6e6'),
+    paper: light ? undefined : hex(settings.background, '1e1e1e'),
+  }
 }
 
-// Typesets one formula to a tight transparent PNG, cached on disk by content.
-function typesetFormula($: EngineInterface, segment: Display): Promise<Typeset | undefined> {
-  const id = `${segment.env}\u0000${segment.tex}`
+// Typesets one formula or figure to a tight transparent PNG, cached on disk by content.
+function typesetSegment($: EngineInterface, segment: Drawn): Promise<Typeset | undefined> {
+  const id = segment.kind === 'figure' ? `figure\u0000${segment.tex}` : `${segment.env}\u0000${segment.tex}`
   let pending = typeset.get(id)
   if (!pending) {
-    pending = runLatex($, segment).catch(() => undefined)
+    pending = (segment.kind === 'figure' ? runTikz($, segment) : runLatex($, segment)).catch(() => undefined)
     typeset.set(id, pending)
   }
   return pending
@@ -178,9 +200,9 @@ function typesetFormula($: EngineInterface, segment: Display): Promise<Typeset |
 async function runLatex($: EngineInterface, segment: Display): Promise<Typeset | undefined> {
   if (!isSafeTex(segment.tex)) return undefined
   const dir = await cache($)
-  const fg = await color($)
+  const fg = dvipngColor((await palette($)).ink) ?? 'rgb 0.9 0.9 0.9'
   const doc = texDocument(segment, settings.preamble)
-  const dpi = Math.round((settings.scale * ROW_PX * 72.27) / 12)
+  const dpi = dpiFor()
   const key = hashKey([VERSION, doc, fg, dpi].join('\u0000'))
   const png = `${dir}/${key}.png`
   const failed = `${dir}/${key}.err`
@@ -207,15 +229,59 @@ async function runLatex($: EngineInterface, segment: Display): Promise<Typeset |
     }
   }
 
+  return measure($, png)
+}
+
+// A figure's text is typeset at the same size as a formula's.
+function dpiFor(): number {
+  return Math.round((settings.scale * ROW_PX * 72.27) / 12)
+}
+
+async function measure($: EngineInterface, png: string): Promise<Typeset | undefined> {
   const { base64 } = await $.fs.read(png, { as: 'bytes' })
   const size = pngSize(base64)
   return size ? { path: png, ...size } : undefined
 }
 
-// Pads (and if needed shrinks) a typeset formula to a whole number of cells,
-// so the terminal's scaling to the box keeps its proportions.
-function fit($: EngineInterface, segment: Display, room: number): Promise<Picture | undefined> {
-  const id = `${segment.env}\u0000${segment.tex}\u0000${room}`
+async function runTikz($: EngineInterface, segment: Figure): Promise<Typeset | undefined> {
+  if (!isSafeTex(segment.tex) || !(await figuresOn($))) return undefined
+  const dir = await cache($)
+  const { ink, paper } = await palette($)
+  const doc = figureDocument(segment.tex, settings.preamble, ink, paper)
+  const dpi = dpiFor()
+  const key = hashKey([VERSION, doc, dpi].join('\u0000'))
+  const png = `${dir}/${key}.png`
+  const failed = `${dir}/${key}.err`
+
+  if (await $.fs.exists(failed)) return undefined
+  if (!(await $.fs.exists(png))) {
+    await $.fs.write(`${dir}/${key}.tex`, doc)
+    const latex = await $.process.run(
+      ['pdflatex', '-no-shell-escape', '-interaction=nonstopmode', '-halt-on-error', `${key}.tex`],
+      { cwd: dir, env: { openout_any: 'p', openin_any: 'p' }, timeoutMs: 30000 },
+    )
+    if (latex.exitCode !== 0) {
+      await $.fs.write(failed, latexError(latex.stdout))
+      return undefined
+    }
+    // pdftocairo names the picture itself, adding `.png` to the stem.
+    const cairo = await $.process.run(
+      ['pdftocairo', '-png', '-transp', '-singlefile', '-r', String(dpi), `${key}.pdf`, key],
+      { cwd: dir, timeoutMs: 15000 },
+    )
+    await $.process.run(['rm', '-f', `${key}.aux`, `${key}.log`, `${key}.pdf`], { cwd: dir }).catch(() => undefined)
+    if (cairo.exitCode !== 0) {
+      await $.fs.write(failed, cairo.stderr || 'pdftocairo failed')
+      return undefined
+    }
+  }
+  return measure($, png)
+}
+
+// Pads (and if needed shrinks) a typeset formula or figure to a whole number
+// of cells, so the terminal's scaling to the box keeps its proportions.
+function fit($: EngineInterface, segment: Drawn, room: number): Promise<Picture | undefined> {
+  const id = `${segment.kind === 'figure' ? 'figure' : segment.env}\u0000${segment.tex}\u0000${room}`
   let pending = fitted.get(id)
   if (!pending) {
     pending = padToCells($, segment, room).catch(() => undefined)
@@ -224,8 +290,8 @@ function fit($: EngineInterface, segment: Display, room: number): Promise<Pictur
   return pending
 }
 
-async function padToCells($: EngineInterface, segment: Display, room: number): Promise<Picture | undefined> {
-  const base = await typesetFormula($, segment)
+async function padToCells($: EngineInterface, segment: Drawn, room: number): Promise<Picture | undefined> {
+  const base = await typesetSegment($, segment)
   if (!base) return undefined
   const cellW = ROW_PX / settings.cellAspect
   const shrink = Math.min(1, (room * cellW) / base.width)

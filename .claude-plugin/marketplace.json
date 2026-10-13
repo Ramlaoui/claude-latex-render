@@ -8,7 +8,7 @@
     {
       "name": "latex-render",
       "source": "./",
-      "description": "Renders LaTeX math in Claude's replies: display math as crisp images (kitty graphics protocol), inline math as Unicode"
+      "description": "Renders LaTeX in Claude's replies: display math and TikZ figures as crisp images (kitty graphics protocol), inline math as Unicode"
     }
   ]
 }

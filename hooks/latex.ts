@@ -1,14 +1,18 @@
-// Pure LaTeX helpers: finding math in markdown, Unicode conversion, the
-// document a display formula is typeset in. No `$` here, so tests reach it all.
+// Pure LaTeX helpers: finding math and TikZ figures in markdown, Unicode
+// conversion, the documents a display formula or a figure is typeset in. No `$` here, so tests reach it all.
 
 export type Segment =
   | { kind: 'markdown'; text: string }
   | { kind: 'display'; tex: string; env?: string }
+  | { kind: 'figure'; tex: string }
 
 const DISPLAY_ENVS = 'equation|align|gather|multline|eqnarray|flalign|alignat'
 
+const FIGURE_ENVS = 'tikzpicture|tikzcd'
+
 const DISPLAY = new RegExp(
-  String.raw`\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\begin\{(${DISPLAY_ENVS})(\*?)\}([\s\S]*?)\\end\{\3\4\}`,
+  String.raw`\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\begin\{(${DISPLAY_ENVS})(\*?)\}([\s\S]*?)\\end\{\3\4\}` +
+    String.raw`|\\begin\{(${FIGURE_ENVS})\}[\s\S]*?\\end\{\6\}`,
   'g',
 )
 
@@ -16,16 +20,23 @@ const INLINE = /\\\((.+?)\\\)|(?<![\\$\w])\$(?![\s$])([^$\n]+?)(?<![\s\\])\$(?![
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/
 
+// A fenced block whose info string is `tikz` holds a figure.
+const TIKZ_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*tikz[ \t]*$/m
+
 // Private-use characters stand in for inline code spans while math is found.
 const HOLE = ''
 
 export function hasMath(text: string): boolean {
-  return text.includes('$') || text.includes('\\(') || text.includes('\\[') || text.includes('\\begin{')
+  return (
+    text.includes('$') || text.includes('\\(') || text.includes('\\[') || text.includes('\\begin{') || TIKZ_FENCE.test(text)
+  )
 }
 
 /**
- * Splits markdown into text and display-math segments, leaving fenced code
- * and inline code spans alone. Inline math stays in the text segments.
+ * Splits markdown into text, display-math and figure segments, leaving other
+ * fenced code and inline code spans alone. Inline math stays in the text
+ * segments. A figure is a closed ```tikz fence or a bare `tikzpicture` or
+ * `tikzcd` environment.
  */
 export function splitMath(text: string): Segment[] {
   const out: Segment[] = []
@@ -38,7 +49,9 @@ export function splitMath(text: string): Segment[] {
 
   for (const block of splitFences(text)) {
     if (block.isCode) {
-      pushText(block.text)
+      const figure = tikzFence(block.text)
+      if (figure) out.push(figure)
+      else pushText(block.text)
       continue
     }
     const { masked, spans } = maskCodeSpans(block.text)
@@ -46,6 +59,11 @@ export function splitMath(text: string): Segment[] {
     for (const m of masked.matchAll(DISPLAY)) {
       const start = m.index ?? 0
       pushText(unmask(masked.slice(at, start), spans))
+      if (m[6]) {
+        out.push({ kind: 'figure', tex: unmask(m[0], spans).trim() })
+        at = start + m[0].length
+        continue
+      }
       const env = m[3]
       const tex = unmask(m[1] ?? m[2] ?? m[5] ?? '', spans).trim()
       if (tex === '') pushText(unmask(m[0], spans))
@@ -74,11 +92,30 @@ export function inlineToUnicode(markdown: string): string {
     .join('')
 }
 
-/** The whole reply as markdown with every formula in Unicode. */
+/** The whole reply as markdown with every formula in Unicode, every figure as its code. */
 export function segmentsToUnicode(segments: Segment[]): string {
   return segments
-    .map(s => (s.kind === 'markdown' ? inlineToUnicode(s.text) : displayToUnicode(s.tex)))
+    .map(s =>
+      s.kind === 'markdown' ? inlineToUnicode(s.text) : s.kind === 'figure' ? figureToCode(s.tex) : displayToUnicode(s.tex),
+    )
     .join('')
+}
+
+/** A figure that cannot be drawn, shown as the TikZ it was written in. */
+export function figureToCode(tex: string): string {
+  return '\n\n```tex\n' + tex + '\n```\n\n'
+}
+
+// The figure in a closed ```tikz fence, undefined for any other block.
+function tikzFence(block: string): Segment | undefined {
+  const lines = block.split(/(?<=\n)/)
+  const marks = TIKZ_FENCE.exec(lines[0] ?? '')?.[1]
+  const last = lines[lines.length - 1]?.trim() ?? ''
+  if (!marks || lines.length < 2 || last[0] !== marks[0] || !/^(`+|~+)$/.test(last) || last.length < marks.length) {
+    return undefined
+  }
+  const tex = lines.slice(1, -1).join('').trim()
+  return tex === '' ? undefined : { kind: 'figure', tex }
 }
 
 /** A display formula as indented Unicode lines, one per `\\` row. */
@@ -515,6 +552,49 @@ export function texDocument(segment: { tex: string; env?: string }, preamble: st
     '\\end{document}',
     '',
   ].join('\n')
+}
+
+/**
+ * The standalone document a TikZ figure is typeset alone in, drawn in `ink`.
+ * With `paper`, the background of a dark theme, `white` (and what colors are
+ * mixed with, as in `blue!20`) becomes that background, so fills, masks and
+ * tints stay dark; `black` is always the ink. Both are 6-digit hex.
+ */
+export function figureDocument(tex: string, preamble: string, ink: string, paper?: string): string {
+  const body = new RegExp(String.raw`\\begin\{(?:${FIGURE_ENVS})\}`).test(tex)
+    ? tex
+    : `\\begin{tikzpicture}\n${tex}\n\\end{tikzpicture}`
+  const dark = paper ? hexRgb(paper) : undefined
+  return [
+    '\\documentclass[tikz,border=4pt]{standalone}',
+    '\\usepackage{amsmath,amssymb,amsfonts,mathtools,bm,pgfplots}',
+    '\\pgfplotsset{compat=1.18,every axis/.append style={axis on top}}',
+    '\\usetikzlibrary{arrows.meta,calc,cd,decorations.pathreplacing,patterns,positioning,shapes.geometric}',
+    preamble,
+    `\\definecolor{black}{HTML}{${ink.replace('#', '')}}`,
+    ...(dark
+      ? [
+          `\\definecolor{white}{HTML}{${paper!.replace('#', '')}}`,
+          '\\makeatletter',
+          `\\def\\XC@clr@rgb@white{${dark.join(',')}}`,
+          `\\def\\XC@clr@gray@white{${((dark[0] + dark[1] + dark[2]) / 3).toFixed(3)}}`,
+          `\\def\\XC@clr@cmy@white{${dark.map(c => (1 - c).toFixed(3)).join(',')}}`,
+          `\\def\\XC@clr@cmyk@white{${dark.map(c => (1 - c).toFixed(3)).join(',')},0}`,
+          '\\makeatother',
+        ]
+      : []),
+    '\\begin{document}',
+    '\\color{black}',
+    body,
+    '\\end{document}',
+    '',
+  ].join('\n')
+}
+
+function hexRgb(hex: string): [number, number, number] | undefined {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim())
+  if (!m) return undefined
+  return [1, 2, 3].map(k => Number((parseInt(m[k]!, 16) / 255).toFixed(3))) as [number, number, number]
 }
 
 /** A short stable hex key for a string (two FNV-1a passes). */

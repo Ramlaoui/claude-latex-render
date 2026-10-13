@@ -1,7 +1,7 @@
 {
   "name": "latex-render",
-  "version": "0.1.0",
-  "description": "Renders LaTeX math in Claude's replies: display math as crisp images (kitty graphics protocol), inline math as Unicode",
+  "version": "0.2.0",
+  "description": "Renders LaTeX in Claude's replies: display math and TikZ figures as crisp images (kitty graphics protocol), inline math as Unicode",
   "author": {
     "name": "arthgirard",
     "url": "https://github.com/arthgirard"
@@ -43,6 +43,12 @@
       "title": "Extra LaTeX preamble",
       "description": "Added after amsmath, amssymb, mathtools and bm, e.g. \\usepackage{physics}",
       "default": ""
+    },
+    "background": {
+      "type": "string",
+      "title": "Figure background",
+      "description": "Hex color of the terminal's background on a dark theme, which TikZ's white and color tints such as blue!20 are drawn against; auto is #1e1e1e",
+      "default": "auto"
     }
   }
 }
