@@ -1,6 +1,8 @@
 // Pure LaTeX helpers: finding math and TikZ figures in markdown, Unicode
 // conversion, the documents a display formula or a figure is typeset in. No `$` here, so tests reach it all.
 
+import type { Mode } from '../types'
+
 export type Segment =
   | { kind: 'markdown'; text: string }
   | { kind: 'display'; tex: string; env?: string }
@@ -25,6 +27,18 @@ const TIKZ_FENCE = /^ {0,3}(`{3,}|~{3,})[ \t]*tikz[ \t]*$/m
 
 // Private-use characters stand in for inline code spans while math is found.
 const HOLE = ''
+
+/**
+ * The mode `/latex <args>` switches to from `current`: no argument flips it,
+ * `render` or `source` (or `on` / `off`) sets it, anything else is undefined.
+ */
+export function nextMode(current: Mode, args: string): Mode | undefined {
+  const word = args.trim().toLowerCase()
+  if (word === '') return current === 'render' ? 'source' : 'render'
+  if (word === 'render' || word === 'on') return 'render'
+  if (word === 'source' || word === 'off') return 'source'
+  return undefined
+}
 
 export function hasMath(text: string): boolean {
   return (

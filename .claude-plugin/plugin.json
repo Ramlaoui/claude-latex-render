@@ -1,6 +1,6 @@
 {
   "name": "latex-render",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Renders LaTeX in Claude's replies: display math and TikZ figures as crisp images (kitty graphics protocol), inline math as Unicode",
   "author": {
     "name": "arthgirard",
@@ -8,6 +8,7 @@
   },
   "repository": "https://github.com/arthgirard/claude-latex-render",
   "license": "MIT",
+  "types": "./types/index.d.ts",
   "userConfig": {
     "images": {
       "type": "string",

@@ -1,4 +1,7 @@
+import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
+
+import type { Mode } from '../types'
 
 import {
   dvipngColor,
@@ -8,6 +11,7 @@ import {
   inlineToUnicode,
   isSafeTex,
   latexError,
+  nextMode,
   pngSize,
   segmentsToUnicode,
   splitMath,
@@ -44,6 +48,8 @@ let canDraw: Promise<boolean> | undefined
 let canDrawFigures: Promise<boolean> | undefined
 let cacheDir: Promise<string> | undefined
 let colors: Promise<Palette> | undefined
+// `/latex` flips this; in `source` every reply is drawn as written.
+const mode = atom({ plugin: 'latex-render', key: 'mode' } as const, 'render' as Mode)
 const typeset = new Map<string, Promise<Typeset | undefined>>()
 const fitted = new Map<string, Promise<Picture | undefined>>()
 
@@ -57,7 +63,29 @@ export const register: Register = (on, options) => {
     background: String(options.background ?? 'auto'),
   }
 
+  on('session.start', async ($, e, next) => {
+    await $.command.register({
+      name: 'latex',
+      description: 'Toggle LaTeX in replies between rendered and as written',
+      argumentHint: '[render|source]',
+      immediate: true,
+    })
+    // A reload keeps the mode; the status line has to say so again.
+    showMode($, await read($, mode))
+    return next(e)
+  })
+
+  on('command.run', { command: 'latex' }, async ($, e) => {
+    const chosen = nextMode(await read($, mode), e.args)
+    if (!chosen) return { text: 'Usage: /latex [render|source]' }
+    await update($, mode, () => chosen)
+    showMode($, chosen)
+    return { text: chosen === 'source' ? 'LaTeX is shown as written.' : 'LaTeX is rendered.' }
+  })
+
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    // Read before anything else, so every reply is drawn again when it changes.
+    if ((await read($, mode)) === 'source') return next(e)
     const text = e.props.text
     if (e.props.isSummary || !hasMath(text)) return next(e)
 
@@ -118,6 +146,10 @@ export const register: Register = (on, options) => {
       </Box>
     )
   })
+}
+
+function showMode($: EngineInterface, current: Mode): void {
+  $.ui.status(current === 'source' ? 'LaTeX: source (/latex to render)' : undefined)
 }
 
 function imagesOn($: EngineInterface): Promise<boolean> {

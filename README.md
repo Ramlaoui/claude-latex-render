@@ -25,6 +25,12 @@ Answer `y` to add the marketplace, then pick the user scope to have it in every 
 
 Without `latex` or `dvipng` the mod still converts all math to Unicode.
 
+## Rendered or as written
+
+`/latex` flips every reply between rendered and the LaTeX as Claude wrote it (`$$…$$`, `\begin{tikzpicture}`, …), ready to copy; `/latex source` and `/latex render` set it directly. While source is on, the status line says so. It works mid-reply and lasts for the session.
+
+LaTeX inside an ordinary code block (` ```latex `, ` ```tex `) is never rendered, so asking Claude for LaTeX code to paste gets code either way.
+
 ## Settings
 
 In `/config`:
@@ -52,7 +58,7 @@ claude plugin test .
 claude --plugin-dir .
 ```
 
-`hooks/register.tsx` hooks the drawing of assistant messages; `hooks/latex.ts` holds the parsing, Unicode conversion and document building; `hooks/latex.test.ts` tests them.
+`hooks/register.tsx` hooks the drawing of assistant messages; `hooks/latex.ts` holds the parsing, Unicode conversion and document building; `hooks/latex.test.ts` tests them; `hooks/toggle.test.tsx` drives `/latex` through the engine.
 
 ## License
 

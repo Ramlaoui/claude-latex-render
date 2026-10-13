@@ -8,6 +8,7 @@ import {
   hasMath,
   inlineToUnicode,
   isSafeTex,
+  nextMode,
   pngSize,
   segmentsToUnicode,
   splitMath,
@@ -151,5 +152,16 @@ describe('figures', () => {
     expect(dark).toContain('\\def\\XC@clr@rgb@white{0.118,0.118,0.118}')
     const light = figureDocument('\\draw (0,0) -- (1,0);', '', '1f1f1f')
     expect(light).not.toContain('{white}')
+  })
+})
+
+describe('nextMode', () => {
+  test('no argument flips, a word sets, anything else is refused', async () => {
+    expect(nextMode('render', '')).toBe('source')
+    expect(nextMode('source', '  ')).toBe('render')
+    expect(nextMode('source', 'source')).toBe('source')
+    expect(nextMode('source', 'Render')).toBe('render')
+    expect(nextMode('render', 'off')).toBe('source')
+    expect(nextMode('render', 'images')).toBe(undefined)
   })
 })
