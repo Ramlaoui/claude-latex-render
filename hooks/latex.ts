@@ -584,6 +584,7 @@ export function figureDocument(tex: string, preamble: string, ink: string, paper
     '\\usepackage{amsmath,amssymb,amsfonts,mathtools,bm,pgfplots}',
     '\\pgfplotsset{compat=1.18,every axis/.append style={axis on top}}',
     '\\usetikzlibrary{arrows.meta,calc,cd,decorations.pathreplacing,patterns,positioning,shapes.geometric}',
+    ...figureColors(Boolean(paper)),
     preamble,
     `\\definecolor{black}{HTML}{${ink.replace('#', '')}}`,
     ...(dark
@@ -603,6 +604,77 @@ export function figureDocument(tex: string, preamble: string, ink: string, paper
     '\\end{document}',
     '',
   ].join('\n')
+}
+
+// Lowercase SVG names xcolor lacks, defined so a figure naming one compiles.
+const EXTRA_COLORS: Record<string, string> = {
+  navy: '000080',
+  darkblue: '00008B',
+  midnightblue: '191970',
+  indigo: '4B0082',
+  maroon: '800000',
+  darkred: '8B0000',
+  darkgreen: '006400',
+}
+
+// On a dark theme, the named colors too dim to read on the background, as
+// lighter shades of themselves.
+const DARK_COLORS: Record<string, string> = {
+  blue: '6EA8FF',
+  navy: '7AA2F7',
+  darkblue: '6C8CFF',
+  midnightblue: '8C9EFF',
+  violet: 'B48CFF',
+  indigo: 'A58CFF',
+  purple: 'D38BD8',
+  brown: 'D09A66',
+  maroon: 'E07A7A',
+  darkred: 'FF6B6B',
+  darkgreen: '5CC96B',
+  teal: '3CC8C8',
+  darkgray: 'A8A8A8',
+}
+
+// Ahead of the extra preamble, so a color the person defines there wins.
+function figureColors(dark: boolean): string[] {
+  const colors = dark ? { ...EXTRA_COLORS, ...DARK_COLORS } : EXTRA_COLORS
+  return Object.entries(colors).map(([name, hex]) => `\\definecolor{${name}}{HTML}{${hex}}`)
+}
+
+/** What a reply drawn here can show: pictures at all, figures, and a dark theme's background. */
+export type StyleFacts = { pictures: boolean; figures: boolean; paper?: string }
+
+/**
+ * The system prompt section that tells the model how to write math and
+ * figures so this mod draws them well.
+ */
+export function styleGuide({ pictures, figures, paper }: StyleFacts): string {
+  const lines = [
+    '# Math and figures',
+    'Your replies are shown in a terminal that renders LaTeX (the latex-render plugin). Write math and figures in the forms it renders:',
+    '- Write math in LaTeX rather than plain-text approximations like x^2 or sqrt(x): inline `$…$`, display `$$…$$` on lines of its own (or an `align`, `gather` or `equation` environment).',
+    '- Inline math is turned into Unicode text, so keep it to symbols, Greek letters, sub- and superscripts, operators and short fractions like `$a/b$`. Anything taller (stacked fractions, matrices, `cases`, sums or integrals with limits) goes in display math.',
+    '- A bare number is plain text: write 0 or 3.5, never `$0$` or `$3.5$`. Math holding only digits is left as written, dollar signs and all, so it is not mistaken for a price.',
+    '- Never put math meant to be read in a code block or inline code, which show raw LaTeX. Use a ```latex block only when asked for LaTeX source.',
+    '- Figures, graphs, plots and commutative diagrams go in a ```tikz fenced block: bare TikZ commands, or a whole `tikzpicture` or `tikzcd` environment. pgfplots, tikz-cd and the TikZ libraries arrows.meta, calc, cd, decorations.pathreplacing, patterns, positioning and shapes.geometric are loaded; write no `\\documentclass`, `\\usepackage` or `\\begin{document}`.',
+    '- A formula or figure using `\\def`, `\\newcommand`, `\\let`, `\\input`, `\\write`, `\\csname` or other macro and file primitives is never compiled; use `\\pgfmathsetmacro`, `\\tikzset` or plain repetition instead.',
+  ]
+  if (!pictures) {
+    lines.push(
+      '- This terminal shows no images: display math is shown as Unicode text and figures as their TikZ code. Keep display math simple, and draw a figure only when asked.',
+    )
+  } else if (!figures) {
+    lines.push('- Figures cannot be drawn here and are shown as their TikZ code; draw one only when asked.')
+  }
+  if (pictures && figures && paper) {
+    lines.push(
+      `- The background is dark (#${paper.replace('#', '')}). In figures, leave lines and text in the default color, the terminal's light text color (\`black\` means the same). \`white\` is the background: a white fill hides what is under it, and tints like \`blue!20\` are dim fills, good for shading regions.`,
+      '- Color figures with named colors: red, orange, yellow, green, cyan, blue, magenta, violet, purple, teal, brown, gray. Dark ones are lightened to read on the background. Do not define colors by RGB or hex, and do not use dvipsnames or svgnames (`NavyBlue`, `Navy`): they are not loaded.',
+    )
+  } else if (pictures && figures) {
+    lines.push('- Color figures with named xcolor colors (red, blue, green, orange, …); dvipsnames and svgnames (`NavyBlue`, `Navy`) are not loaded.')
+  }
+  return lines.join('\n')
 }
 
 function hexRgb(hex: string): [number, number, number] | undefined {

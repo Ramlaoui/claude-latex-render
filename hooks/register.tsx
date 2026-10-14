@@ -15,6 +15,7 @@ import {
   pngSize,
   segmentsToUnicode,
   splitMath,
+  styleGuide,
   texDocument,
   texToUnicode,
 } from './latex'
@@ -62,6 +63,17 @@ export const register: Register = (on, options) => {
     preamble: String(options.preamble ?? ''),
     background: String(options.background ?? 'auto'),
   }
+  // What was found for the previous options no longer holds.
+  canDraw = canDrawFigures = colors = undefined
+
+  // Tells the model how to write math and figures so they are drawn well here.
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    if (!e.surfaces.includes('terminal')) return composed
+    const [pictures, figures, { paper }] = await Promise.all([imagesOn($), figuresOn($), palette($)])
+    const section = { id: 'latex-render:style', text: styleGuide({ pictures, figures, paper }), scope: 'session' } as const
+    return { sections: [...composed.sections, section] }
+  })
 
   on('session.start', async ($, e, next) => {
     await $.command.register({

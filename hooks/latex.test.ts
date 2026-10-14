@@ -12,6 +12,7 @@ import {
   pngSize,
   segmentsToUnicode,
   splitMath,
+  styleGuide,
   texDocument,
   texToUnicode,
 } from './latex'
@@ -152,6 +153,41 @@ describe('figures', () => {
     expect(dark).toContain('\\def\\XC@clr@rgb@white{0.118,0.118,0.118}')
     const light = figureDocument('\\draw (0,0) -- (1,0);', '', '1f1f1f')
     expect(light).not.toContain('{white}')
+  })
+
+  test('a dark theme lightens dim named colors, before the preamble so it can override them', async () => {
+    const dark = figureDocument('\\draw[navy] (0,0) -- (1,0);', '\\definecolor{blue}{HTML}{0000FF}', 'e6e6e6', '1e1e1e')
+    expect(dark).toContain('\\definecolor{navy}{HTML}{7AA2F7}')
+    expect(dark).toContain('\\definecolor{darkgray}{HTML}{A8A8A8}')
+    expect(dark.indexOf('\\definecolor{blue}{HTML}{6EA8FF}')).toBeLessThan(dark.indexOf('\\definecolor{blue}{HTML}{0000FF}'))
+  })
+
+  test('a light theme keeps xcolor\'s colors but still defines the SVG names', async () => {
+    const light = figureDocument('\\draw[navy] (0,0) -- (1,0);', '', '1f1f1f')
+    expect(light).toContain('\\definecolor{navy}{HTML}{000080}')
+    expect(light).not.toContain('{blue}')
+  })
+})
+
+describe('styleGuide', () => {
+  test('asks for LaTeX math, plain numbers and tikz fences', async () => {
+    const guide = styleGuide({ pictures: true, figures: true })
+    expect(guide).toContain('`$…$`')
+    expect(guide).toContain('never `$0$`')
+    expect(guide).toContain('```tikz')
+    expect(guide).not.toContain('background is dark')
+  })
+
+  test('a dark theme names its background and the colors to use', async () => {
+    const guide = styleGuide({ pictures: true, figures: true, paper: '#1e1e1e' })
+    expect(guide).toContain('background is dark (#1e1e1e)')
+    expect(guide).toContain('Dark ones are lightened')
+  })
+
+  test('without pictures it says math is text and leaves colors out', async () => {
+    const guide = styleGuide({ pictures: false, figures: false, paper: '1e1e1e' })
+    expect(guide).toContain('shows no images')
+    expect(guide).not.toContain('named colors')
   })
 })
 

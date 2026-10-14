@@ -3,10 +3,11 @@
 A Claude Code mod that renders LaTeX math and TikZ figures in Claude's replies, right in the terminal.
 
 - **Display math** (`$$…$$`, `\[…\]`, `equation`, `align`, `gather`, …) is typeset with `latex` + `dvipng` and drawn as a crisp image through the kitty graphics protocol.
-- **TikZ figures** (a ` ```tikz ` fenced block, or a bare `tikzpicture` or `tikzcd` environment) are compiled with `pdflatex` + `pdftocairo` and drawn the same way. A fence may hold bare commands (`\draw …;`), which are wrapped in a `tikzpicture`. `pgfplots`, `tikz-cd` and the common TikZ libraries are loaded. On a dark theme `black` is the theme's ink and `white`, along with tints like `blue!20`, turns dark.
+- **TikZ figures** (a ` ```tikz ` fenced block, or a bare `tikzpicture` or `tikzcd` environment) are compiled with `pdflatex` + `pdftocairo` and drawn the same way. A fence may hold bare commands (`\draw …;`), which are wrapped in a `tikzpicture`. `pgfplots`, `tikz-cd` and the common TikZ libraries are loaded. On a dark theme `black` is the theme's ink and `white`, along with tints like `blue!20`, turns dark. Named colors too dim for a dark background (`blue`, `navy`, `violet`, `purple`, `brown`, `teal`, `darkgray`, …) are lightened; `navy`, `darkblue`, `maroon` and the other lowercase SVG names are defined on either theme.
 - **Inline math** (`$…$`, `\(…\)`) is converted to Unicode: `$\forall x \in \mathbb{R}$` becomes `∀x ∈ ℝ`, `$x_{n+1}^2$` becomes `xₙ₊₁²`.
 - Code blocks, inline code and prices like `$5 and $10` are left alone.
 - Anything that fails to compile, or a terminal without image support, falls back to Unicode text (figures to their TikZ code).
+- **Claude is told how to write for it.** A section added to the system prompt in terminal sessions asks for `$…$` and `$$…$$` math, ` ```tikz ` figures, bare numbers as plain text (`0`, not `$0$`, which is left as written), and named colors that read on the theme. It follows the settings: without image support Claude is told math shows as text.
 
 ## Install
 
@@ -58,7 +59,7 @@ claude plugin test .
 claude --plugin-dir .
 ```
 
-`hooks/register.tsx` hooks the drawing of assistant messages; `hooks/latex.ts` holds the parsing, Unicode conversion and document building; `hooks/latex.test.ts` tests them; `hooks/toggle.test.tsx` drives `/latex` through the engine.
+`hooks/register.tsx` hooks the drawing of assistant messages and the system prompt; `hooks/latex.ts` holds the parsing, Unicode conversion and document building; `hooks/latex.test.ts` tests them; `hooks/toggle.test.tsx` drives `/latex` through the engine; `hooks/prompt.test.ts` composes a system prompt through it.
 
 ## License
 
