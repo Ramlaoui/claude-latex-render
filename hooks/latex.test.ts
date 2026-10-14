@@ -209,6 +209,12 @@ describe('styleGuide', () => {
     expect(guide).not.toContain('background is dark')
   })
 
+  test('lists the subscript letters Unicode has and what happens to the rest', async () => {
+    const guide = styleGuide({ pictures: true, figures: true })
+    expect(guide).toContain('the letters a e h i j k l m n o p r s t u v x.')
+    expect(guide).toContain('is left as `_N`')
+  })
+
   test('a dark theme names its background and the colors to use', async () => {
     const guide = styleGuide({ pictures: true, figures: true, paper: '#1e1e1e' })
     expect(guide).toContain('background is dark (#1e1e1e)')
