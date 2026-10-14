@@ -10,7 +10,7 @@ export type Segment =
 
 const DISPLAY_ENVS = 'equation|align|gather|multline|eqnarray|flalign|alignat'
 
-const FIGURE_ENVS = 'tikzpicture|tikzcd'
+const FIGURE_ENVS = 'tikzpicture|tikzcd|axis'
 
 const DISPLAY = new RegExp(
   String.raw`\$\$([\s\S]+?)\$\$|\\\[([\s\S]+?)\\\]|\\begin\{(${DISPLAY_ENVS})(\*?)\}([\s\S]*?)\\end\{\3\4\}` +
@@ -54,8 +54,8 @@ export function hasMath(text: string): boolean {
 /**
  * Splits markdown into text, display-math and figure segments, leaving other
  * fenced code and inline code spans alone. Inline math stays in the text
- * segments. A figure is a closed ```tikz fence or a bare `tikzpicture` or
- * `tikzcd` environment.
+ * segments. A figure is a closed ```tikz fence or a bare `tikzpicture`,
+ * `tikzcd` or pgfplots `axis` environment.
  */
 export function splitMath(text: string): Segment[] {
   const out: Segment[] = []
@@ -642,7 +642,7 @@ export function texDocument(segment: { tex: string; env?: string }, preamble: st
  * tints stay dark; `black` is always the ink. Both are 6-digit hex.
  */
 export function figureDocument(tex: string, preamble: string, ink: string, paper?: string): string {
-  const body = new RegExp(String.raw`\\begin\{(?:${FIGURE_ENVS})\}`).test(tex)
+  const body = /\\begin\{(?:tikzpicture|tikzcd)\}/.test(tex)
     ? tex
     : `\\begin{tikzpicture}\n${tex}\n\\end{tikzpicture}`
   const dark = paper ? hexRgb(paper) : undefined
@@ -723,7 +723,7 @@ export function styleGuide({ pictures, figures, paper }: StyleFacts): string {
     '- Inline math is turned into Unicode text, so keep it to symbols, Greek letters, sub- and superscripts, operators and short fractions like `$a/b$`. Anything taller (stacked fractions, matrices, `cases`, sums or integrals with limits) goes in display math.',
     '- A bare number is plain text: write 0 or 3.5 rather than `$0$` or `$3.5$`.',
     '- Never put math meant to be read in a code block or inline code, which show raw LaTeX. Use a ```latex block only when asked for LaTeX source.',
-    '- Figures, graphs, plots and commutative diagrams go in a ```tikz fenced block: bare TikZ commands, or a whole `tikzpicture` or `tikzcd` environment. pgfplots, tikz-cd and the TikZ libraries arrows.meta, calc, cd, decorations.pathreplacing, patterns, positioning and shapes.geometric are loaded; write no `\\documentclass`, `\\usepackage` or `\\begin{document}`.',
+    '- Figures, graphs, plots and commutative diagrams (including pgfplots `axis` plots) always go in a ```tikz fenced block, never loose in the text and never in a ```latex block: bare TikZ commands, or a whole `tikzpicture`, `axis` or `tikzcd` environment. pgfplots, tikz-cd and the TikZ libraries arrows.meta, calc, cd, decorations.pathreplacing, patterns, positioning and shapes.geometric are loaded; write no `\\documentclass`, `\\usepackage` or `\\begin{document}`.',
     '- A formula or figure using `\\def`, `\\newcommand`, `\\let`, `\\input`, `\\write`, `\\csname` or other macro and file primitives is never compiled; use `\\pgfmathsetmacro`, `\\tikzset` or plain repetition instead.',
   ]
   if (!pictures) {
