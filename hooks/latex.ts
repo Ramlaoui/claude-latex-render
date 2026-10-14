@@ -204,7 +204,8 @@ const SYMBOLS: Record<string, string> = {
   wedge: '∧', lor: '∨', vee: '∨', top: '⊤', bot: '⊥', vdash: '⊢', models: '⊨',
   to: '→', rightarrow: '→', leftarrow: '←', gets: '←', leftrightarrow: '↔', Rightarrow: '⇒',
   Leftarrow: '⇐', Leftrightarrow: '⇔', implies: '⟹', impliedby: '⟸', iff: '⟺', mapsto: '↦',
-  longrightarrow: '⟶', longleftarrow: '⟵', longmapsto: '⟼', uparrow: '↑', downarrow: '↓',
+  longrightarrow: '⟶', longleftarrow: '⟵', longleftrightarrow: '⟷', Longrightarrow: '⟹',
+  Longleftarrow: '⟸', Longleftrightarrow: '⟺', longmapsto: '⟼', uparrow: '↑', downarrow: '↓',
   hookrightarrow: '↪', rightharpoonup: '⇀', nearrow: '↗', searrow: '↘',
   infty: '∞', partial: '∂', nabla: '∇', sum: '∑', prod: '∏', coprod: '∐', int: '∫', iint: '∬',
   iiint: '∭', oint: '∮', angle: '∠', triangle: '△', square: '□', Box: '□',
@@ -273,7 +274,7 @@ const FUNCTION_START = '\uE002'
 const FUNCTION_END = '\uE001'
 
 // Relations and binary operators drawn with a space either side.
-const SPACED = /[+=<>≤≥≠≈≡∼≃≅∝∈∉∋⊂⊃⊆⊇⊊→←↔⇒⇐⇔⟹⟸⟺↦⟶⊢⊨≪≫·×±∓÷]/g
+const SPACED = /[+=<>≤≥≠≈≡∼≃≅∝∈∉∋⊂⊃⊆⊇⊊→←↔⇒⇐⇔⟹⟸⟺↦⟶⟵⟷⊢⊨≪≫·×±∓÷]/g
 
 // A sign with nothing to add to: first, or after a bracket, a comma or another operator.
 const SIGNS = '+±∓'
@@ -460,6 +461,23 @@ export function texToUnicode(tex: string): string {
       case 'underbrace':
       case 'overbrace':
         return arg()
+      // Color has no Unicode form: drop it, keep what it colors.
+      case 'color':
+        optionalArg()
+        rawGroup()
+        return ''
+      case 'textcolor':
+      case 'colorbox':
+        optionalArg()
+        rawGroup()
+        return arg()
+      case 'fcolorbox':
+        optionalArg()
+        rawGroup()
+        rawGroup()
+        return arg()
+      case 'boxed':
+        return arg()
       case 'pmod':
         return ' (mod ' + arg() + ')'
       case '\\':
@@ -555,15 +573,19 @@ const STARRED: Record<string, string> = {
   eqnarray: 'eqnarray*',
 }
 
-/** The LaTeX document a display formula is typeset alone in. */
-export function texDocument(segment: { tex: string; env?: string }, preamble: string): string {
+/**
+ * The LaTeX document a display formula is typeset alone in. With `paper`, a
+ * dark theme's background, named colors too dim to read on it are lightened.
+ */
+export function texDocument(segment: { tex: string; env?: string }, preamble: string, paper?: string): string {
   const body = segment.tex.replace(/\\label\{[^}]*\}/g, '')
   let env = segment.env ? (STARRED[segment.env] ?? segment.env) : undefined
   if (env === undefined) env = body.includes('&') && !body.includes('\\begin{') ? 'align*' : 'gather*'
   if (env === 'alignat*' && !body.trimStart().startsWith('{')) env = 'align*'
   return [
     '\\documentclass[10pt]{article}',
-    '\\usepackage{amsmath,amssymb,amsfonts,mathtools,bm}',
+    '\\usepackage{amsmath,amssymb,amsfonts,mathtools,bm,xcolor}',
+    ...figureColors(Boolean(paper)),
     preamble,
     '\\pagestyle{empty}',
     '\\setlength{\\textwidth}{60cm}',

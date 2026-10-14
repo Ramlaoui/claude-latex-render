@@ -84,6 +84,19 @@ describe('typesetting helpers', () => {
     expect(texDocument({ tex: '\\begin{pmatrix}a&b\\end{pmatrix}' }, '')).toContain('\\begin{gather*}')
   })
 
+  test('texDocument loads xcolor, lightening dim colors on a dark theme', async () => {
+    expect(texDocument({ tex: '\\color{red}x' }, '')).toContain('xcolor')
+    expect(texDocument({ tex: 'x' }, '', '1e1e1e')).toContain('\\definecolor{blue}{HTML}{6EA8FF}')
+    expect(texDocument({ tex: 'x' }, '')).not.toContain('\\definecolor{blue}')
+  })
+
+  test('texToUnicode drops color and keeps what it colors', async () => {
+    expect(texToUnicode('\\mathbb{R}^{\\color{red}n} \\Longrightarrow \\color{blue}n \\times \\color{red}n')).toBe(
+      'ℝⁿ ⟹ n × n',
+    )
+    expect(texToUnicode('\\textcolor{red}{x} + \\colorbox{yellow}{y} + \\boxed{z}')).toBe('x + y + z')
+  })
+
   test('isSafeTex refuses file access and macro tricks', async () => {
     expect(isSafeTex('\\int_0^1 f(x)\\,dx')).toBe(true)
     expect(isSafeTex('\\input{/etc/passwd}')).toBe(false)
