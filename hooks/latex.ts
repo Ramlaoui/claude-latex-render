@@ -252,7 +252,7 @@ const SUPERSCRIPT: Record<string, string> = {
   r: 'ʳ', s: 'ˢ', t: 'ᵗ', u: 'ᵘ', v: 'ᵛ', w: 'ʷ', x: 'ˣ', y: 'ʸ', z: 'ᶻ', A: 'ᴬ', B: 'ᴮ', D: 'ᴰ',
   E: 'ᴱ', G: 'ᴳ', H: 'ᴴ', I: 'ᴵ', J: 'ᴶ', K: 'ᴷ', L: 'ᴸ', M: 'ᴹ', N: 'ᴺ', O: 'ᴼ', P: 'ᴾ', R: 'ᴿ',
   T: 'ᵀ', U: 'ᵁ', V: 'ⱽ', W: 'ᵂ', 'β': 'ᵝ', 'γ': 'ᵞ', 'δ': 'ᵟ', 'θ': 'ᶿ', 'ϕ': 'ᵠ', 'φ': 'ᵠ',
-  'χ': 'ᵡ', '∗': '*', '*': '*', '′': '′', ',': '˒', ' ': '',
+  'χ': 'ᵡ', '∗': '*', '*': '*', '′': '′', ',': '˒', ' ': '', '∘': '°',
 }
 
 const SUBSCRIPT: Record<string, string> = {
@@ -274,6 +274,14 @@ const FUNCTION_END = '\uE001'
 
 // Relations and binary operators drawn with a space either side.
 const SPACED = /[+=<>≤≥≠≈≡∼≃≅∝∈∉∋⊂⊃⊆⊇⊊→←↔⇒⇐⇔⟹⟸⟺↦⟶⊢⊨≪≫·×±∓÷]/g
+
+// A sign with nothing to add to: first, or after a bracket, a comma or another operator.
+const SIGNS = '+±∓'
+const AFTER_SIGN = /(?:^|[([{,;=<>≤≥≠≈≡∼≃≅∝∈∉∋⊂⊃⊆⊇⊊→←↔⇒⇐⇔⟹⟸⟺↦⟶⊢⊨≪≫·×±∓÷+])$/
+
+function spaceOperator(op: string, at: number, all: string): string {
+  return SIGNS.includes(op) && AFTER_SIGN.test(all.slice(0, at).trimEnd()) ? op : ` ${op} `
+}
 
 type Token = { type: 'command'; name: string } | { type: 'char'; value: string }
 
@@ -499,7 +507,7 @@ export function texToUnicode(tex: string): string {
     .replaceAll(FUNCTION_END, '')
     .replace(new RegExp('(?<=[A-Za-z0-9)\u0370-\u03ff′])' + FUNCTION_START, 'g'), ' ')
     .replaceAll(FUNCTION_START, '')
-    .replace(SPACED, ' $& ')
+    .replace(SPACED, spaceOperator)
     .replace(/[ \t\n]+/g, ' ')
     .replace(/ ([,;.)\]])/g, '$1')
     .replace(/([([]) /g, '$1')

@@ -201,3 +201,19 @@ describe('nextMode', () => {
     expect(nextMode('render', 'images')).toBe(undefined)
   })
 })
+
+describe('degrees and signs', () => {
+  test('^\\circ is a degree sign', async () => {
+    expect(texToUnicode('-45^\\circ')).toBe('-45°')
+    expect(texToUnicode('90^{\\circ}')).toBe('90°')
+    expect(inlineToUnicode('rotates by $-45^\\circ$, then back by $+45^\\circ$.')).toBe('rotates by -45°, then back by +45°.')
+  })
+
+  test('a leading sign stays on its number, a sum is spaced', async () => {
+    expect(texToUnicode('+45')).toBe('+45')
+    expect(texToUnicode('\\theta=+1')).toBe('θ = +1')
+    expect(texToUnicode('(+1, \\pm 2)')).toBe('(+1, ±2)')
+    expect(texToUnicode('a+b')).toBe('a + b')
+    expect(texToUnicode('x \\pm y')).toBe('x ± y')
+  })
+})

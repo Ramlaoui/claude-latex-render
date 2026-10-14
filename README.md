@@ -2,6 +2,8 @@
 
 A Claude Code mod that renders LaTeX math and TikZ figures in Claude's replies, right in the terminal.
 
+![Claude answering an eigenvalue question: the reply streams in as LaTeX, then its equations show as typeset images beside a TikZ figure of the unit circle stretched into an ellipse along the eigenvectors, and /latex switches it to source and back](assets/demo.gif)
+
 - **Display math** (`$$…$$`, `\[…\]`, `equation`, `align`, `gather`, …) is typeset with `latex` + `dvipng` and drawn as a crisp image through the kitty graphics protocol.
 - **TikZ figures** (a ` ```tikz ` fenced block, or a bare `tikzpicture` or `tikzcd` environment) are compiled with `pdflatex` + `pdftocairo` and drawn the same way. A fence may hold bare commands (`\draw …;`), which are wrapped in a `tikzpicture`. `pgfplots`, `tikz-cd` and the common TikZ libraries are loaded. On a dark theme `black` is the theme's ink and `white`, along with tints like `blue!20`, turns dark. Named colors too dim for a dark background (`blue`, `navy`, `violet`, `purple`, `brown`, `teal`, `darkgray`, …) are lightened; `navy`, `darkblue`, `maroon` and the other lowercase SVG names are defined on either theme.
 - **Inline math** (`$…$`, `\(…\)`) is converted to Unicode: `$\forall x \in \mathbb{R}$` becomes `∀x ∈ ℝ`, `$x_{n+1}^2$` becomes `xₙ₊₁²`.
