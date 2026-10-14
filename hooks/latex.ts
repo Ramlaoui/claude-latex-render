@@ -18,7 +18,12 @@ const DISPLAY = new RegExp(
   'g',
 )
 
-const INLINE = /\\\((.+?)\\\)|(?<![\\$\w])\$(?![\s$])([^$\n]+?)(?<![\s\\])\$(?![$\w])/g
+// A `$` glued to a digit or a letter before it, or a digit after it, is a
+// price (`US$5`, `5$`, `$5-$10`), so `$n$th` and `_$x$_` are math and `$5-$10` is not.
+const INLINE = /\\\((.+?)\\\)|(?<![\\$0-9A-Za-z])\$(?![\s$])([^$\n]+?)(?<![\s\\])\$(?![$\d])/g
+
+// A number written as math, `$0$`, `$-3.5$` or `$1,000$`.
+const NUMBER = /^-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?$/
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/
 
@@ -90,6 +95,32 @@ export function splitMath(text: string): Segment[] {
   return out
 }
 
+/**
+ * How much of a reply still being written is settled: its length up to the
+ * end of the line on which its last finished display formula or figure
+ * closes, when nothing but spaces follows the close on that line; 0 when no
+ * formula or figure has closed so. Math inside code is never a close.
+ */
+export function settledLength(text: string): number {
+  let settled = 0
+  let offset = 0
+  for (const block of splitFences(text)) {
+    if (block.isCode) {
+      if (block.text.endsWith('\n') && tikzFence(block.text)) settled = offset + block.text.length
+    } else {
+      // Code spans keep their length, so offsets in the masked text hold in the reply.
+      const masked = block.text.replace(/(`+)[\s\S]*?\1/g, span => HOLE.repeat(span.length))
+      for (const m of masked.matchAll(DISPLAY)) {
+        const end = (m.index ?? 0) + m[0].length
+        const line = /^[ \t]*\n/.exec(masked.slice(end))
+        if (line) settled = offset + end + line[0].length
+      }
+    }
+    offset += block.text.length
+  }
+  return settled
+}
+
 /** Replaces inline math in markdown with Unicode, escaped for markdown. */
 export function inlineToUnicode(markdown: string): string {
   return splitFences(markdown)
@@ -98,6 +129,8 @@ export function inlineToUnicode(markdown: string): string {
       const { masked, spans } = maskCodeSpans(block.text)
       const replaced = masked.replace(INLINE, (whole, paren?: string, dollar?: string) => {
         const tex = paren ?? dollar ?? ''
+        if (NUMBER.test(tex)) return tex
+        // Digits that are no number (`$5,$`) are left as written.
         if (dollar !== undefined && /^[\d.,\s]+$/.test(dollar)) return whole
         return escapeMarkdown(texToUnicode(tex))
       })
@@ -688,7 +721,7 @@ export function styleGuide({ pictures, figures, paper }: StyleFacts): string {
     'Your replies are shown in a terminal that renders LaTeX (the latex-render plugin). Write math and figures in the forms it renders:',
     '- Write math in LaTeX rather than plain-text approximations like x^2 or sqrt(x): inline `$…$`, display `$$…$$` on lines of its own (or an `align`, `gather` or `equation` environment).',
     '- Inline math is turned into Unicode text, so keep it to symbols, Greek letters, sub- and superscripts, operators and short fractions like `$a/b$`. Anything taller (stacked fractions, matrices, `cases`, sums or integrals with limits) goes in display math.',
-    '- A bare number is plain text: write 0 or 3.5, never `$0$` or `$3.5$`. Math holding only digits is left as written, dollar signs and all, so it is not mistaken for a price.',
+    '- A bare number is plain text: write 0 or 3.5 rather than `$0$` or `$3.5$`.',
     '- Never put math meant to be read in a code block or inline code, which show raw LaTeX. Use a ```latex block only when asked for LaTeX source.',
     '- Figures, graphs, plots and commutative diagrams go in a ```tikz fenced block: bare TikZ commands, or a whole `tikzpicture` or `tikzcd` environment. pgfplots, tikz-cd and the TikZ libraries arrows.meta, calc, cd, decorations.pathreplacing, patterns, positioning and shapes.geometric are loaded; write no `\\documentclass`, `\\usepackage` or `\\begin{document}`.',
     '- A formula or figure using `\\def`, `\\newcommand`, `\\let`, `\\input`, `\\write`, `\\csname` or other macro and file primitives is never compiled; use `\\pgfmathsetmacro`, `\\tikzset` or plain repetition instead.',

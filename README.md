@@ -8,8 +8,9 @@ A Claude Code mod that renders LaTeX math and TikZ figures in Claude's replies, 
 - **TikZ figures** (a ` ```tikz ` fenced block, or a bare `tikzpicture` or `tikzcd` environment) are compiled with `pdflatex` + `pdftocairo` and drawn the same way. A fence may hold bare commands (`\draw …;`), which are wrapped in a `tikzpicture`. `pgfplots`, `tikz-cd` and the common TikZ libraries are loaded. On a dark theme `black` is the theme's ink and `white`, along with tints like `blue!20`, turns dark. Named colors too dim for a dark background (`blue`, `navy`, `violet`, `purple`, `brown`, `teal`, `darkgray`, …) are lightened; `navy`, `darkblue`, `maroon` and the other lowercase SVG names are defined on either theme.
 - **Inline math** (`$…$`, `\(…\)`) is converted to Unicode: `$\forall x \in \mathbb{R}$` becomes `∀x ∈ ℝ`, `$x_{n+1}^2$` becomes `xₙ₊₁²`.
 - Code blocks, inline code and prices like `$5 and $10` are left alone.
+- **Live preview.** Each display formula and figure is compiled as soon as it closes in the streaming reply and shown in a strip above the prompt (up to 12 rows, newest last) while Claude keeps writing. When the reply's text block ends it is drawn in place, the picture already made, and the strip clears.
 - Anything that fails to compile, or a terminal without image support, falls back to Unicode text (figures to their TikZ code).
-- **Claude is told how to write for it.** A section added to the system prompt in terminal sessions asks for `$…$` and `$$…$$` math, ` ```tikz ` figures, bare numbers as plain text (`0`, not `$0$`, which is left as written), and named colors that read on the theme. It follows the settings: without image support Claude is told math shows as text.
+- **Claude is told how to write for it.** A section added to the system prompt in terminal sessions asks for `$…$` and `$$…$$` math, ` ```tikz ` figures, bare numbers as plain text (`0` rather than `$0$`, though both show as `0`), and named colors that read on the theme. It follows the settings: without image support Claude is told math shows as text.
 
 ## Install
 
@@ -45,6 +46,7 @@ In `/config`:
 | `scale` | `1.25` | Terminal rows one line of LaTeX takes |
 | `cellAspect` | `2.1` | Cell height ÷ width; raise it if formulas look squashed, lower it if stretched |
 | `preamble` | empty | Extra LaTeX preamble, e.g. `\usepackage{physics}` |
+| `preview` | `on` | `on` shows each formula and figure above the prompt as soon as it is typeset; `off` only in the reply, once its block ends |
 | `background` | `auto` | On a dark theme, the terminal background as hex, which figures' `white` and tints become (`auto` is `#1e1e1e`) |
 
 Rendered formulas and figures are cached in `~/.cache/claude-latex-render/`.
@@ -61,7 +63,7 @@ claude plugin test .
 claude --plugin-dir .
 ```
 
-`hooks/register.tsx` hooks the drawing of assistant messages and the system prompt; `hooks/latex.ts` holds the parsing, Unicode conversion and document building; `hooks/latex.test.ts` tests them; `hooks/toggle.test.tsx` drives `/latex` through the engine; `hooks/prompt.test.ts` composes a system prompt through it.
+`hooks/register.tsx` hooks the drawing of assistant messages and of the band above the prompt, the streaming reply and the system prompt; `hooks/latex.ts` holds the parsing, Unicode conversion and document building; `hooks/latex.test.ts` tests them; `hooks/toggle.test.tsx` drives `/latex` through the engine; `hooks/stream.test.tsx` streams a reply through it and watches the preview; `hooks/prompt.test.ts` composes a system prompt through it.
 
 ## License
 

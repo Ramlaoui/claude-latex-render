@@ -11,6 +11,7 @@ import {
   nextMode,
   pngSize,
   segmentsToUnicode,
+  settledLength,
   splitMath,
   styleGuide,
   texDocument,
@@ -45,6 +46,21 @@ describe('inlineToUnicode', () => {
 
   test('escapes markdown in the result', async () => {
     expect(inlineToUnicode('$a_{ij}^*$')).toBe('aᵢⱼ\\*')
+  })
+
+  test('converts math with a word ending glued to it, or in underscore italics', async () => {
+    expect(inlineToUnicode('the $n$th term')).toBe('the nth term')
+    expect(inlineToUnicode('all the $x$s')).toBe('all the xs')
+    expect(inlineToUnicode('_$x$_')).toBe('_x_')
+  })
+
+  test('converts a number written as math', async () => {
+    expect(inlineToUnicode('at $0$ and $3.5$, then $1,000$ and $-2$')).toBe('at 0 and 3.5, then 1,000 and -2')
+  })
+
+  test('keeps prices written close together', async () => {
+    expect(inlineToUnicode('from $5-$10, or $5/$10, or $5,$10')).toBe('from $5-$10, or $5/$10, or $5,$10')
+    expect(inlineToUnicode('US$5 or 5$ and 10$')).toBe('US$5 or 5$ and 10$')
   })
 })
 
@@ -188,7 +204,7 @@ describe('styleGuide', () => {
   test('asks for LaTeX math, plain numbers and tikz fences', async () => {
     const guide = styleGuide({ pictures: true, figures: true })
     expect(guide).toContain('`$…$`')
-    expect(guide).toContain('never `$0$`')
+    expect(guide).toContain('write 0 or 3.5')
     expect(guide).toContain('```tikz')
     expect(guide).not.toContain('background is dark')
   })
@@ -230,5 +246,33 @@ describe('degrees and signs', () => {
     expect(texToUnicode('(+1, \\pm 2)')).toBe('(+1, ±2)')
     expect(texToUnicode('a+b')).toBe('a + b')
     expect(texToUnicode('x \\pm y')).toBe('x ± y')
+  })
+})
+
+describe('settledLength', () => {
+  test('settles after the line a formula closes on', async () => {
+    const text = 'Take\n$$x^2$$\nso'
+    expect(settledLength(text)).toBe('Take\n$$x^2$$\n'.length)
+    expect(settledLength('Take\n$$x^2$$  \n')).toBe('Take\n$$x^2$$  \n'.length)
+    expect(settledLength('A \\[ y \\]\nB \\begin{align}a\\end{align}\nC')).toBe(
+      'A \\[ y \\]\nB \\begin{align}a\\end{align}\n'.length,
+    )
+  })
+
+  test('nothing is settled while a formula is open or its line goes on', async () => {
+    expect(settledLength('Take $$x^2')).toBe(0)
+    expect(settledLength('Take $$x^2$$')).toBe(0)
+    expect(settledLength('Take $$x^2$$ and')).toBe(0)
+    expect(settledLength('\\begin{align}a &= b\n')).toBe(0)
+  })
+
+  test('a closed tikz fence settles, other code never does', async () => {
+    const fig = '```tikz\n\\draw (0,0) -- (1,1);\n```\n'
+    expect(settledLength(fig + 'after')).toBe(fig.length)
+    expect(settledLength('```tikz\n\\draw (0,0) -- (1,1);\n```')).toBe(0)
+    expect(settledLength('```tikz\n\\draw (0,0) -- (1,1);\n')).toBe(0)
+    expect(settledLength('```latex\n$$x$$\n```\n')).toBe(0)
+    expect(settledLength('```latex\n$$x$$\n')).toBe(0)
+    expect(settledLength('Use `$$x$$`\n')).toBe(0)
   })
 })

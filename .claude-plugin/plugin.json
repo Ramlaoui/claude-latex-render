@@ -1,6 +1,6 @@
 {
   "name": "latex-render",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Renders LaTeX in Claude's replies: display math and TikZ figures as crisp images (kitty graphics protocol), inline math as Unicode",
   "author": {
     "name": "arthgirard",
@@ -50,6 +50,16 @@
       "title": "Figure background",
       "description": "Hex color of the terminal's background on a dark theme, which TikZ's white and color tints such as blue!20 are drawn against; auto is #1e1e1e",
       "default": "auto"
+    },
+    "preview": {
+      "type": "string",
+      "title": "Live preview",
+      "description": "on: while Claude writes, each formula and figure is shown above the prompt as soon as it is typeset; off: only in the reply, once its block ends",
+      "options": [
+        "on",
+        "off"
+      ],
+      "default": "on"
     }
   }
 }

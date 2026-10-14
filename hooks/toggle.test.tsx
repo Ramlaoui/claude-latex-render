@@ -36,6 +36,20 @@ describe('/latex', () => {
     expect(await shown()).toContain('Let α ≤ β hold.')
   })
 
+  test('a summary row gets its math in Unicode too', async ($, on) => {
+    on('ui.render', { component: 'AssistantMessage' }, ($, e) => {
+      const { Text } = $.ui.resolve(e)
+      return <Text>{e.props.text}</Text>
+    })
+    const view = await $.ui.mount({
+      plugin: 'latex-render',
+      surface: 'terminal',
+      component: 'AssistantMessage',
+      props: { text: 'Found the $n$th root at $0$', isFirstOfReply: true, isSummary: true },
+    })
+    expect(JSON.stringify(await view.drawn())).toContain('Found the nth root at 0')
+  })
+
   test('an unknown argument changes nothing', async $ => {
     const answer = await $.command.run(latex('sideways'))
     expect(answer.text).toBe('Usage: /latex [render|source]')
