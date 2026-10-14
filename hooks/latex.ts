@@ -574,10 +574,12 @@ const STARRED: Record<string, string> = {
 }
 
 /**
- * The LaTeX document a display formula is typeset alone in. With `paper`, a
- * dark theme's background, named colors too dim to read on it are lightened.
+ * The LaTeX document a display formula is typeset alone in, drawn in `ink`:
+ * xcolor sets the page in explicit `black`, which would override dvipng's
+ * `-fg`, so `black` is the ink. With `paper`, a dark theme's background, named
+ * colors too dim to read on it are lightened. Both are 6-digit hex.
  */
-export function texDocument(segment: { tex: string; env?: string }, preamble: string, paper?: string): string {
+export function texDocument(segment: { tex: string; env?: string }, preamble: string, ink?: string, paper?: string): string {
   const body = segment.tex.replace(/\\label\{[^}]*\}/g, '')
   let env = segment.env ? (STARRED[segment.env] ?? segment.env) : undefined
   if (env === undefined) env = body.includes('&') && !body.includes('\\begin{') ? 'align*' : 'gather*'
@@ -587,9 +589,11 @@ export function texDocument(segment: { tex: string; env?: string }, preamble: st
     '\\usepackage{amsmath,amssymb,amsfonts,mathtools,bm,xcolor}',
     ...figureColors(Boolean(paper)),
     preamble,
+    ...(ink ? [`\\definecolor{black}{HTML}{${ink.replace('#', '')}}`] : []),
     '\\pagestyle{empty}',
     '\\setlength{\\textwidth}{60cm}',
     '\\begin{document}',
+    ...(ink ? ['\\color{black}'] : []),
     `\\begin{${env}}`,
     body,
     `\\end{${env}}`,

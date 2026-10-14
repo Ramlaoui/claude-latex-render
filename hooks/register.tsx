@@ -246,7 +246,7 @@ async function runLatex($: EngineInterface, segment: Display): Promise<Typeset |
   const dir = await cache($)
   const { ink, paper } = await palette($)
   const fg = dvipngColor(ink) ?? 'rgb 0.9 0.9 0.9'
-  const doc = texDocument(segment, settings.preamble, paper)
+  const doc = texDocument(segment, settings.preamble, ink, paper)
   const dpi = dpiFor()
   const key = hashKey([VERSION, doc, fg, dpi].join('\u0000'))
   const png = `${dir}/${key}.png`

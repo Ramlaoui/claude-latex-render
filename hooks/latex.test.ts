@@ -86,7 +86,9 @@ describe('typesetting helpers', () => {
 
   test('texDocument loads xcolor, lightening dim colors on a dark theme', async () => {
     expect(texDocument({ tex: '\\color{red}x' }, '')).toContain('xcolor')
-    expect(texDocument({ tex: 'x' }, '', '1e1e1e')).toContain('\\definecolor{blue}{HTML}{6EA8FF}')
+    expect(texDocument({ tex: 'x' }, '', 'e6e6e6', '1e1e1e')).toContain('\\definecolor{blue}{HTML}{6EA8FF}')
+    expect(texDocument({ tex: 'x' }, '', 'e6e6e6')).toContain('\\definecolor{black}{HTML}{e6e6e6}')
+    expect(texDocument({ tex: 'x' }, '', 'e6e6e6')).toMatch(/\\begin\{document\}\n\\color\{black\}/)
     expect(texDocument({ tex: 'x' }, '')).not.toContain('\\definecolor{blue}')
   })
 
