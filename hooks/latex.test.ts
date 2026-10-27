@@ -94,6 +94,10 @@ describe('typesetting helpers', () => {
     expect(displayToUnicode('a &= b \\\\ c &= d')).toBe('\n\n    a = b  \n    c = d\n\n')
   })
 
+  test('displayToUnicode leaves underscores unescaped in its code block', async () => {
+    expect(displayToUnicode('p_\\theta')).toBe('\n\n    p_θ\n\n')
+  })
+
   test('texDocument stars numbered environments and picks align for &', async () => {
     expect(texDocument({ tex: 'x', env: 'equation' }, '')).toContain('\\begin{gather*}')
     expect(texDocument({ tex: 'a &= b' }, '')).toContain('\\begin{align*}')

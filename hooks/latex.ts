@@ -172,7 +172,8 @@ export function displayToUnicode(tex: string): string {
     .split(/\\\\(?:\[[^\]]*\])?/)
     .map(line => texToUnicode(line).trim())
     .filter(line => line !== '')
-  return '\n\n' + lines.map(line => '    ' + escapeMarkdown(line)).join('  \n') + '\n\n'
+  // Indented lines are a code block, which shows markdown escapes literally.
+  return '\n\n' + lines.map(line => '    ' + line).join('  \n') + '\n\n'
 }
 
 function splitFences(text: string): { text: string; isCode: boolean }[] {
